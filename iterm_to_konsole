@@ -1,0 +1,135 @@
+#!/usr/bin/python
+
+import os
+import sys
+from xml.etree import ElementPath, ElementTree
+from pprint import pprint
+from itertools import *
+
+DefaultItemKeys = """
+Ansi 0 Color
+Ansi 1 Color
+Ansi 2 Color
+Ansi 3 Color
+Ansi 4 Color
+Ansi 5 Color
+Ansi 6 Color
+Ansi 7 Color
+Ansi 8 Color
+Ansi 9 Color
+Ansi 10 Color
+Ansi 11 Color
+Ansi 12 Color
+Ansi 13 Color
+Ansi 14 Color
+Ansi 15 Color
+Background Color
+Foreground Color
+Cursor Color
+Cursor Text Color
+Selection Color
+Selected Text Color
+Bold Color
+"""
+
+DefaultKonsoleKeys = """
+Color0
+Color1
+Color2
+Color3
+Color4
+Color5
+Color6
+Color7
+Color0Intense
+Color1Intense
+Color2Intense
+Color3Intense
+Color4Intense
+Color5Intense
+Color6Intense
+Color7Intense
+Background
+Foreground
+BackgroundIntense
+ForegroundIntense
+"""
+
+class PlistParser(object):
+    @classmethod
+    def parse(cls, el):
+        try:
+            f = getattr(cls, 'parse_' + el.tag)
+        except AttributeError:
+            raise RuntimeError("no parser for tag " + el.tag)
+        return f(el)
+
+    @classmethod
+    def parse_plist(cls, el):
+        return [cls.parse(i) for i in el.iterfind('*')]
+
+    @classmethod
+    def dictitems(cls, el):
+        k = None
+        for e in el.iterfind('*'):
+            if k is None and e.tag == "key":
+                k = e.text
+            elif k is not None:
+                yield (k, cls.parse(e))
+                k = None
+            else:
+                raise RuntimeError("unexpected tag " + e.tag)
+
+    @classmethod
+    def parse_dict(cls, el):
+        return dict(cls.dictitems(el))
+
+    @classmethod
+    def parse_key(cls, el):
+        return el.text
+
+    @classmethod
+    def parse_real(cls, el):
+        return float(el.text)
+
+def rgbtuple(v):
+    return (v['Red Component'],
+            v['Green Component'],
+            v['Blue Component'])
+
+DefaultKeyMap = dict(izip(
+    DefaultItemKeys.strip().splitlines(),
+    DefaultKonsoleKeys.strip().splitlines()))
+
+def convert(i, o, keymap=DefaultKeyMap, desc='Converted From iTerm'):
+    tree = ElementTree.parse(i)
+    data = PlistParser.parse(tree.getroot())[0]
+    data = data.iteritems()
+    data = ((keymap[k], tuple(round(255*n) for n in rgbtuple(v)))
+        for k, v in data if k in keymap)
+
+    o.write('[General]\n')
+    o.write('Description=%s\n' % desc)
+    o.write('Opacity=1.0\n')
+    o.flush()
+    for name, color in data:
+        o.write('\n')
+        o.write('[%s]\n' % name)
+        o.write('Color=%i,%i,%i\n' % color)
+        o.write('Transparency=false\n')
+        o.flush()
+
+args = sys.argv[1:]
+
+if len(args):
+    for arg in args:
+        desc = os.path.basename(arg)
+        if desc.endswith('.itermcolors'):
+            desc = desc[:-12]
+        out = arg
+        if out.endswith('.itermcolors'):
+            out = out[:-12]
+        out += '.colorscheme'
+        convert(open(arg), open(out, 'w'), desc=desc)
+else:
+    convert(sys.stdin, sys.stdout)
